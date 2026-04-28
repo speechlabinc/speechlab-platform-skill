@@ -1,0 +1,115 @@
+{
+  "skill_name": "speechlab-api",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Show me how to log into the SpeechLab dev API and get a JWT token I can use for requests. I'm writing a Node.js script.",
+      "expected_output": "Code that calls POST /auth/login and extracts the token from tokens.accessToken.jwtToken (NOT tokens.access.token). Should include the correct nested path.",
+      "assertions": [
+        {
+          "text": "Uses tokens.accessToken.jwtToken to extract the JWT (not tokens.access.token)",
+          "type": "contains",
+          "value": "tokens.accessToken.jwtToken"
+        },
+        {
+          "text": "Calls POST /auth/login",
+          "type": "contains",
+          "value": "/auth/login"
+        },
+        {
+          "text": "Sets Authorization header as Bearer token",
+          "type": "contains",
+          "value": "Authorization"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I need to create a test project in SpeechLab without uploading a real file. How do I do it using the YouTube import feature?",
+      "expected_output": "Two-step flow: POST /uploads/import-youtube → POST /projects/createProjectAndTranscribe. Should mention fileUuid extraction and cleanup with isDeleted:true.",
+      "assertions": [
+        {
+          "text": "Uses POST /uploads/import-youtube",
+          "type": "contains",
+          "value": "import-youtube"
+        },
+        {
+          "text": "Uses POST /projects/createProjectAndTranscribe",
+          "type": "contains",
+          "value": "createProjectAndTranscribe"
+        },
+        {
+          "text": "Mentions fileUuid extraction from response",
+          "type": "contains_any",
+          "values": ["fileUuid", "uuid"]
+        },
+        {
+          "text": "Mentions cleanup (isDeleted: true)",
+          "type": "contains",
+          "value": "isDeleted"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Our POST /v1/dubs/merge endpoint keeps returning 502 Bad Gateway. What could cause that?",
+      "expected_output": "Should identify that beginDubJob is not exported from dub.service.js (issue #1846). The controller imports it via destructuring but it's missing from module.exports, so it's undefined and calling it throws TypeError.",
+      "assertions": [
+        {
+          "text": "Mentions beginDubJob not being exported",
+          "type": "contains",
+          "value": "beginDubJob"
+        },
+        {
+          "text": "References issue #1846",
+          "type": "contains",
+          "value": "1846"
+        },
+        {
+          "text": "Mentions module.exports or export",
+          "type": "contains_any",
+          "values": ["module.exports", "export", "exports"]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I want to check if a user has enough credits to upload a 2-minute video before I let them proceed. What API call do I make?",
+      "expected_output": "POST /dubs/check-upload-billing with uploads: [{ duration: 120, filename: 'video.mp4' }]. Should explain 200=allowed, 402=insufficient credits.",
+      "assertions": [
+        {
+          "text": "Uses POST /dubs/check-upload-billing",
+          "type": "contains",
+          "value": "check-upload-billing"
+        },
+        {
+          "text": "Passes duration: 120 (2 minutes = 120 seconds)",
+          "type": "contains",
+          "value": "120"
+        },
+        {
+          "text": "Explains 402 response for insufficient credits",
+          "type": "contains",
+          "value": "402"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "When I call GET /translations/:id, what field contains the array of dubs? I keep looking for 'dubs' but it's not there.",
+      "expected_output": "The field is named 'dub' (singular), not 'dubs'. Via GET /translations/:id it returns 'dub'. Via GET /projects/:id the translations array uses 'dubs' (plural). This is a known API inconsistency.",
+      "assertions": [
+        {
+          "text": "Correctly identifies field name as 'dub' (singular) on GET /translations/:id",
+          "type": "contains",
+          "value": "dub"
+        },
+        {
+          "text": "Distinguishes between 'dub' on translations endpoint vs 'dubs' on projects endpoint",
+          "type": "contains_any",
+          "values": ["singular", "dubs", "projects endpoint", "GET /projects"]
+        }
+      ]
+    }
+  ]
+}
