@@ -227,6 +227,47 @@ const ex = await axios.post(`${BASE}/dubs/check-export-billing`, {
 // 402: payment required
 ```
 
+### Recipe E: Direct artifact download via Get Projects + `expand` (alternative to Export)
+
+If the project was created with a `thirdPartyID` (your own correlation ID,
+passed at create time), `GET /projects` with `thirdPartyID` and `expand=true`
+returns the project plus **pre-signed download URLs for every artifact already
+on the project** in a single response — no `exportProject` call, no
+`/dubs/exportDub` poll, no waiting on a separate download job. Use this whenever
+the artifacts you want already exist; fall back to Export + Download only when
+you need a *new* format that hasn't been generated yet.
+
+```js
+// One call → presigned URLs for every existing artifact on the project
+const { data } = await axios.get(`${BASE}/projects`, {
+  params: { thirdPartyID: 'job-2026-04-28-keynote', expand: true },
+  headers,
+});
+
+const project = data.results?.[0] ?? data[0];
+const dub = project.translations?.[0]?.dubs?.[0];
+
+// Each artifact comes with a presigned URL ready for an immediate GET.
+// Common shape (subject to API version): dub.medias[] with
+//   { format: 'mp4'|'wav'|'srt'|'txt', language, uri /* presigned */ }
+// Project-level artifacts (subtitles, captions) may also live on
+// project.transcription.medias[] or translation.medias[].
+for (const media of dub.medias ?? []) {
+  const file = await axios.get(media.uri, { responseType: 'stream' });
+  file.data.pipe(fs.createWriteStream(`./out/${media.format}`));
+}
+```
+
+**When to use which path**:
+
+| Need | Use |
+|---|---|
+| Already have a `thirdPartyID` and the artifacts already exist on the project | `GET /projects?thirdPartyID=…&expand=true` (this recipe) — one call, presigned URLs, no polling |
+| Need a *new* artifact format that hasn't been generated yet | `POST /projects/exportProject/:projectId` then poll + download (Recipe A) |
+| Don't have a `thirdPartyID` | Fetch by `_id`: `GET /projects/:projectId?expand=true` works the same way |
+
+**Gotcha**: `expand=true` is what triggers the presign — without it, the URLs are bare S3 keys you can't download from. Always pass it explicitly.
+
 ---
 
 ## Key API Endpoints Reference
@@ -239,6 +280,8 @@ const ex = await axios.post(`${BASE}/dubs/check-export-billing`, {
 | POST | `/auth/refresh-tokens` | ❌ | Refresh access token |
 | POST | `/auth/logout` | ✅ | Invalidate session |
 | GET | `/projects` | ✅ | List projects (`?limit=10&sortBy=createdAt:desc`) |
+| GET | `/projects?thirdPartyID=<id>&expand=true` | ✅ | Project lookup by your own correlation ID, with **presigned download URLs** included — alternative to Export+Download (see Recipe E) |
+| GET | `/projects/:projectId?expand=true` | ✅ | Same shape as above when you have the internal `_id` |
 | GET | `/projects/:projectId` | ✅ | Full project with translations + dubs populated |
 | PATCH | `/projects/:projectId` | ✅ | Update name, isDeleted, etc. |
 | POST | `/projects/createProjectAndDub` | ✅ | Create project + full pipeline |
@@ -268,12 +311,35 @@ const ex = await axios.post(`${BASE}/dubs/check-export-billing`, {
 |---|---|---|
 | 400 | Bad request / missing auth | Validation error or no `Authorization` header |
 | 401 | Unauthorized | Invalid or expired JWT |
-| 402 | Payment required | Insufficient credits |
+| 402 | Payment required | Insufficient credits — **see "Out of Credits" below** |
 | 403 | Forbidden | Missing role/permission |
 | 404 | Not found | Wrong ID or deleted resource |
 | 409 | Conflict | Dub already exists for this language |
 | 502 | Bad Gateway | ML API error, or `beginDubJob` not exported (#1846) |
 | 500 | Server error | Check server logs |
+
+### Out of Credits (HTTP 402 — required action)
+
+When the API returns **HTTP 402**, or when `check-upload-billing` /
+`check-export-billing` reports `requiredCredits > availableCredits`, the
+user is out of credits. **Do not retry, work around, or attempt to top up
+programmatically — there is no API endpoint for purchasing credits.**
+
+The agent's job here is to clearly tell the user how to top up:
+
+> *"You're out of SpeechLab credits. Open the SpeechLab translate UI at
+> <https://translate.speechlab.ai>, click your avatar in the top-right
+> corner, and choose **Buy more credits** in the dropdown. Once the
+> balance refreshes, retry the request."*
+
+The dropdown shows the user's current plan tier (Pre-paid, etc.) under
+their name. After they top up, your existing JWT keeps working — just
+re-issue the same request.
+
+If the agent is in the middle of a longer pipeline (upload → dub →
+export), it should **stop on the 402** rather than continue and produce
+half a result. State exactly which step hit the credit limit
+(`upload`, `dub`, `export`) so the user knows what they need credits for.
 
 ---
 

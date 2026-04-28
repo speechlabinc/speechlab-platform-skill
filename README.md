@@ -78,6 +78,8 @@ Claude will:
 
 > *"Before I upload a 14-minute interview, run `check-upload-billing` and `check-export-billing` and tell me how many credits I'll burn."*
 
+> *"Pull the dubbed MP4 + SRT for `thirdPartyID=job-2026-04-28-keynote` directly — use `expand=true`, skip the export step."*
+
 > *"List my last 10 projects sorted by `createdAt` and delete every project whose name starts with `[TEST]`."*
 
 ### Real-session walkthrough
@@ -111,8 +113,10 @@ speechlab-api/
 
 - **Auth** — register / confirm / login / refresh, including the nested `tokens.accessToken.jwtToken` path that's easy to get wrong
 - **Project lifecycle** — `createProjectAndDub`, `createProjectAndTranscribe`, polling, export
+- **Two artifact-download paths** — the standard Export → Download flow, AND the fast direct path: `GET /projects?thirdPartyID=…&expand=true` returns presigned URLs in a single call (skip Export entirely when the artifacts already exist)
 - **Translations & segments** — edit one segment, re-synthesize, re-merge
 - **Billing** — `check-upload-billing` and `check-export-billing`, 402 handling
+- **Out-of-credits behavior** — when the API returns 402, the skill tells the user exactly how to top up via the web UI (avatar → "Buy more credits") instead of retrying or quietly failing
 - **Test data** — YouTube import flow for cheap test fixtures, cleanup pattern
 - **Known gotchas** — `dub` vs `dubs` field naming, no-auth → 400 (not 401), `beginDubJob` export bug, sequential batch dubs, `voiceMatchingMode` storage
 
