@@ -102,6 +102,7 @@ const headers = { Authorization: `Bearer ${token}` };
 | **Translation** | Translated text for a target language. Field named `dub` (array) on GET /translations/:id |
 | **Dub** | Synthesized audio. Has `language`, `voiceMatchingMode`, `status`, `mergeStatus` |
 | **Segment** | Time-aligned text unit. `fileNameToDubs` map controls merge vs re-synthesis |
+| **`thirdPartyID`** | Caller-supplied correlation ID. **Strongly recommended** — set it at create time on `createProjectAndDub` / `createProjectAndTranscribe` so you can later retrieve the project (and pre-signed download URLs for every artifact) via `GET /projects?thirdPartyIDs=…&expand=true`. |
 
 ### voiceMatchingMode
 - `source` — clone the source speaker's voice  
@@ -119,23 +120,79 @@ Both `status` (synthesis) and `mergeStatus` (audio merge) follow this lifecycle.
 
 ---
 
+## Two Source Paths — pick the right one
+
+The single most common mistake when wiring SpeechLab into a new app is
+mismatching the *source-file path* with the *project-creation endpoint*.
+There are exactly two supported source-file paths:
+
+### Path 1 — Upload API (any local file)
+
+Use this whenever the user has a file on their machine. Three steps:
+
+```
+POST /uploads/initialize-multipart-upload  { name }
+   → { fileUuid, fileKey, fileId }
+POST /uploads/get-multipart-preSigned-urls { fileKey, fileId, parts: <n> }
+   → { parts: [{ PartNumber, signedUrl }] }
+PUT  <signedUrl>  --data-binary @<chunk>   -H "Content-Type:"
+   → ETag (capture from response header)
+POST /uploads/finalize-multipart-upload    { fileKey, fileId, parts: [{ PartNumber, ETag }] }
+```
+
+Then pair with **`createProjectAndTranscribe`** (NOT `createProjectAndDub`) —
+it accepts `fileUuid` + `fileKey` directly, no public URL needed.
+
+**Gotcha — S3 SigV2 + `curl --data-binary`**: curl auto-adds
+`Content-Type: application/x-www-form-urlencoded`, which becomes part of the
+SigV2 string-to-sign. The presigned URL was generated with no Content-Type,
+so the signature mismatches and S3 returns `403 SignatureDoesNotMatch`. Pass
+`-H "Content-Type:"` (empty value) to strip the header.
+
+### Path 2 — Public HTTPS URL (file already on the web)
+
+Use `POST /projects/createProjectAndDub` with `mediaFileURI` set to a
+public HTTPS URL the backend can reach (CDN, public bucket, signed URL valid
+for the dub duration).
+
+> **`s3://` URIs are NOT supported.** The dub worker rejects them with
+> *"Error processing job: Unsupported protocol s3:"*. You must use
+> `https://`. If you only have an internal S3 object, either upload it
+> through Path 1 instead, or copy it somewhere with a public HTTPS URL.
+
+### Decision table
+
+| Source | Endpoint | Why |
+|---|---|---|
+| Local file on the user's disk | Upload API → `createProjectAndTranscribe` | Skip URL plumbing entirely |
+| Already a public CDN/HTTPS URL | `createProjectAndDub` with `mediaFileURI` | One-shot pipeline |
+| YouTube link | `/uploads/import-youtube` → `createProjectAndTranscribe` | YouTube import returns the same `fileUuid` shape |
+| File already in our internal S3 (`s3://...`) | **Cannot use directly** — convert to HTTPS or re-upload | `s3://` is unsupported |
+
+---
+
 ## Complete Workflow Recipes
 
-### Recipe A: Full Dub Pipeline (single call)
+### Recipe A: Full Dub Pipeline (single call, public HTTPS source)
+
+For files that already live behind a public HTTPS URL — `createProjectAndDub`
+runs the entire transcribe → translate → dub pipeline in one shot. **Never
+use this with `s3://`** — the worker rejects it. For local files, use
+Recipe A2 below.
 
 ```js
 const { tokens } = (await axios.post(`${BASE}/auth/login`, { email, password })).data;
 const token = tokens.accessToken.jwtToken;
 const headers = { Authorization: `Bearer ${token}` };
 
-// Create project + start full pipeline in one shot
 const { data } = await axios.post(`${BASE}/projects/createProjectAndDub`, {
   name: 'My Video',
   sourceLanguage: 'en',
-  targetLanguage: 'es',
-  dubAccent: 'es',
-  mediaFileURI: 's3://speechlab-data-prod/original/uuid/video.mp4',
-  voiceMatchingMode: 'native',
+  targetLanguage: 'es_la',
+  dubAccent: 'es_la',
+  mediaFileURI: 'https://cdn.example.com/uploads/video.mp4', // HTTPS only
+  voiceMatchingMode: 'source',
+  thirdPartyID: 'job-2026-04-28-keynote', // ← set this so you can fetch artifacts later via expand=true
   unitType: 'unit',
   isAudioOnlyFile: false,
 }, { headers });
@@ -152,11 +209,60 @@ while (true) {
   await new Promise(r => setTimeout(r, 5000));
 }
 
-// Export
-await axios.post(`${BASE}/projects/exportProject/${projectId}`, {
-  type: 'video', targetLang: 'es', targetAccent: 'es',
-  selectedFormat: 'mp4', dubId: dub._id,
+// Skip the explicit Export step — Recipe E pulls every artifact in one call
+```
+
+### Recipe A2: Full Dub Pipeline (local file, manual stages)
+
+`createProjectAndDub` doesn't support `s3://` or non-public URLs, so for
+locally-sourced files the working pattern is: **upload → transcribe →
+translate → dub**, with status polling between each stage. The
+`thirdPartyID` keeps the project easy to look up later.
+
+```js
+// 0. Multipart upload (returns fileUuid + fileKey)
+const { fileUuid, fileKey, fileId } = (await axios.post(
+  `${BASE}/uploads/initialize-multipart-upload`,
+  { name: 'lecture.mov' }, { headers }
+)).data;
+// ... split file, fetch signed URLs, PUT each part with `-H "Content-Type:"`,
+//     finalize-multipart-upload with the array of {PartNumber, ETag}.
+
+// 1. Create project + transcription in one call
+const { data: created } = await axios.post(`${BASE}/projects/createProjectAndTranscribe`, {
+  name: 'My Lecture',
+  language: 'en',
+  fileUuid, fileKey,
+  filenameToReturn: 'lecture.mov',
+  contentDuration: 17.5,
+  thirdPartyID: 'job-2026-04-28-lecture',
+  unitType: 'unit',
 }, { headers });
+const projectId = created.project.id;
+const contentId = created.project.content.id;
+const transcriptionId = created.project.transcription.id;
+
+// 2. Wait for transcription COMPLETE, then create translation
+//    (Real shape — NOT the OpenAPI's projectId/transcriptionId/targetLanguage)
+const tx = (await axios.post(`${BASE}/translations`, {
+  project: projectId,
+  language: 'zh',
+  status: 'NOT_STARTED',
+}, { headers })).data;
+const translationId = tx.translation.id;
+
+// 3. Wait for translation COMPLETE, then create dub
+//    (Real shape — NOT the OpenAPI's projectId/translationId/targetLanguage/voiceId)
+const dub = (await axios.post(`${BASE}/dubs`, {
+  contentId,
+  translationId,
+  language: 'zh',
+  status: 'NOT_STARTED',
+  voiceMatchingMode: 'source',
+}, { headers })).data;
+const dubId = dub.id;
+
+// 4. Poll dub until COMPLETE, then download via Recipe E
 ```
 
 ### Recipe B: Test Project (YouTube, no file upload)
@@ -227,46 +333,67 @@ const ex = await axios.post(`${BASE}/dubs/check-export-billing`, {
 // 402: payment required
 ```
 
-### Recipe E: Direct artifact download via Get Projects + `expand` (alternative to Export)
+### Recipe E: Direct artifact download via `GET /projects?expand=true` (preferred)
 
-If the project was created with a `thirdPartyID` (your own correlation ID,
-passed at create time), `GET /projects` with `thirdPartyID` and `expand=true`
-returns the project plus **pre-signed download URLs for every artifact already
-on the project** in a single response — no `exportProject` call, no
-`/dubs/exportDub` poll, no waiting on a separate download job. Use this whenever
-the artifacts you want already exist; fall back to Export + Download only when
-you need a *new* format that hasn't been generated yet.
+`GET /projects?thirdPartyIDs=<id>&expand=true` returns the project plus
+**pre-signed download URLs for every artifact already on the project** in a
+single response — no `exportProject` call, no polling, no separate download
+job. This is the **primary download path** the skill recommends. Set
+`thirdPartyID` at project-create time so the lookup is trivial.
 
 ```js
-// One call → presigned URLs for every existing artifact on the project
+// One call → presigned URLs for every existing artifact
 const { data } = await axios.get(`${BASE}/projects`, {
-  params: { thirdPartyID: 'job-2026-04-28-keynote', expand: true },
+  params: { thirdPartyIDs: 'job-2026-04-28-keynote', expand: true },
   headers,
 });
 
-const project = data.results?.[0] ?? data[0];
-const dub = project.translations?.[0]?.dubs?.[0];
-
-// Each artifact comes with a presigned URL ready for an immediate GET.
-// Common shape (subject to API version): dub.medias[] with
-//   { format: 'mp4'|'wav'|'srt'|'txt', language, uri /* presigned */ }
-// Project-level artifacts (subtitles, captions) may also live on
-// project.transcription.medias[] or translation.medias[].
-for (const media of dub.medias ?? []) {
-  const file = await axios.get(media.uri, { responseType: 'stream' });
-  file.data.pipe(fs.createWriteStream(`./out/${media.format}`));
+const project = data.results[0];
+for (const tx of project.translations ?? []) {
+  // tx.medias = subtitle SRT, JSON captions, etc.
+  for (const m of tx.medias ?? []) {
+    if (!m.presignedURL) continue;
+    const r = await axios.get(m.presignedURL, { responseType: 'stream' });
+    r.data.pipe(fs.createWriteStream(`./out/translation.${m.format}`));
+  }
+  // tx.dub[*].medias = dubbed mp3, dubbed mp4, etc.
+  for (const dub of tx.dub ?? []) {
+    for (const m of dub.medias ?? []) {
+      if (!m.presignedURL) continue;
+      const r = await axios.get(m.presignedURL, { responseType: 'stream' });
+      r.data.pipe(fs.createWriteStream(`./out/dub.${m.format}`));
+    }
+  }
 }
 ```
 
-**When to use which path**:
+**Forgot to set `thirdPartyID`?** Fall back to the project ID:
+`GET /projects/:projectId?expand=true` returns the same shape.
 
-| Need | Use |
+#### Two download paths — which to use
+
+| Goal | Use |
 |---|---|
-| Already have a `thirdPartyID` and the artifacts already exist on the project | `GET /projects?thirdPartyID=…&expand=true` (this recipe) — one call, presigned URLs, no polling |
-| Need a *new* artifact format that hasn't been generated yet | `POST /projects/exportProject/:projectId` then poll + download (Recipe A) |
-| Don't have a `thirdPartyID` | Fetch by `_id`: `GET /projects/:projectId?expand=true` works the same way |
+| Pull artifacts that already exist (subs, audio, dubbed video) | **`GET /projects?thirdPartyIDs=…&expand=true`** — one round-trip, presigned URLs included |
+| Generate a new format that doesn't exist yet (e.g., re-export with `enable_wcag_bg_norm`) | `POST /projects/exportProject/:projectId` + poll `GET /collectionjobs` + download |
+| Pull a single artifact by S3 key | `POST /medias/getMediaPresignedURL` body `{ fileKey }` |
 
-**Gotcha**: `expand=true` is what triggers the presign — without it, the URLs are bare S3 keys you can't download from. Always pass it explicitly.
+**Gotchas with the Export path**:
+- `selectedFormat` must use long-form tokens: `videoMp4`, `audioMp3`,
+  `subtitleSrt`, `transcriptTxt`, etc. **Shorthand values like `mp4`,
+  `srt`, `wav`, `txt` don't error** — they produce a successful
+  `COMPLETED` job whose downloadUrl is a 22-byte empty zip. Always use
+  long-form.
+- The path is `/collectionjobs` (no hyphen), not `/collection-jobs`. The
+  OpenAPI spec is wrong on this.
+- Each collection-job item already has a `presignedUrl` field on it —
+  no need to re-sign manually.
+- The `/medias` route (plural) is at `POST /medias/getMediaPresignedURL`,
+  not `/media/...`. The OpenAPI spec is wrong here too.
+
+**Gotcha**: `expand=true` is what triggers the presign — without it, the
+`medias` arrays contain bare ObjectId strings you can't download from.
+Always pass it explicitly.
 
 ---
 
@@ -280,13 +407,15 @@ for (const media of dub.medias ?? []) {
 | POST | `/auth/refresh-tokens` | ❌ | Refresh access token |
 | POST | `/auth/logout` | ✅ | Invalidate session |
 | GET | `/projects` | ✅ | List projects (`?limit=10&sortBy=createdAt:desc`) |
-| GET | `/projects?thirdPartyID=<id>&expand=true` | ✅ | Project lookup by your own correlation ID, with **presigned download URLs** included — alternative to Export+Download (see Recipe E) |
-| GET | `/projects/:projectId?expand=true` | ✅ | Same shape as above when you have the internal `_id` |
+| GET | `/projects?thirdPartyIDs=<id>&expand=true` | ✅ | **Fast download path** — by correlation ID, with presigned URLs on every media (see Recipe E) |
+| GET | `/projects/:projectId?expand=true` | ✅ | Same shape as above by internal `_id` |
 | GET | `/projects/:projectId` | ✅ | Full project with translations + dubs populated |
-| PATCH | `/projects/:projectId` | ✅ | Update name, isDeleted, etc. |
-| POST | `/projects/createProjectAndDub` | ✅ | Create project + full pipeline |
-| POST | `/projects/createProjectAndTranscribe` | ✅ | Create project + transcription only |
-| POST | `/projects/exportProject/:projectId` | ✅ | Export dubbed video |
+| PATCH | `/projects/:projectId` | ✅ | Update name, isDeleted, etc. (NOT thirdPartyID — set at create time) |
+| POST | `/projects/createProjectAndDub` | ✅ | Create project + full pipeline (HTTPS source URL only) |
+| POST | `/projects/createProjectAndTranscribe` | ✅ | Create project + transcription, accepts Upload-API `fileUuid`/`fileKey` |
+| POST | `/projects/exportProject/:projectId` | ✅ | Generate a NEW format (use `videoMp4`, `audioMp3`, etc. — not `mp4`) |
+| GET | `/collectionjobs?sortBy=createdAt:desc` | ✅ | Poll export jobs — each result has a `presignedUrl` field (real path is no-hyphen) |
+| POST | `/medias/getMediaPresignedURL` | ✅ | POST with `{fileKey}` to sign any S3 key in your org bucket |
 | GET | `/translations/:translationId` | ✅ | Translation with segments + `dub` array |
 | PATCH | `/translations/:translationId/segments/:segmentId` | ✅ | Edit one segment |
 | POST | `/translations/:translationId/uploadCSV/:accent` | ✅ | Bulk update via CSV |
@@ -388,9 +517,20 @@ async function deleteTestProject(client, projectId) {
 |---|---|
 | Token path | `tokens.accessToken.jwtToken` — **not** `tokens.access.token` |
 | No-auth = 400 | Dev API returns 400 (not 401) when `Authorization` header is absent |
+| `s3://` rejected | `mediaFileURI` must be `https://`. Internal S3 URIs error with *"Unsupported protocol s3:"* — use the Upload API + `createProjectAndTranscribe` instead |
+| Mount paths plural | Real routes are `/medias/...` and `/collectionjobs` (no hyphen). The OpenAPI spec lists `/media/...` and `/collection-jobs` — both wrong |
+| `selectedFormat` silent fail | Shorthand values (`mp4`, `srt`, `wav`, `txt`) get a `COMPLETED` job back but the resulting zip is a 22-byte empty `PK\0\0...` archive. Use the long-form tokens: `videoMp4`, `audioMp3`, `subtitleSrt`, `transcriptTxt`, ... |
+| `POST /translations` shape | Body is `{project, language, status: "NOT_STARTED"}` — NOT `{projectId, transcriptionId, targetLanguage}` like the OpenAPI spec says |
+| `POST /dubs` shape | Body is `{contentId, translationId, language, status: "NOT_STARTED", voiceMatchingMode}` — NOT `{projectId, translationId, targetLanguage, voiceId}` |
+| `expand=true` not in spec | `GET /projects?thirdPartyIDs=…&expand=true` is the fast download path — returns a `presignedURL` on every media. Without `expand`, media are bare ObjectId strings |
+| `/medias/getMediaPresignedURL` GET vs POST | GET expects `?projectId=…` + permission check on a media record. POST takes `{fileKey}` in the body and signs any S3 key in the org's bucket. Different semantics, undocumented |
+| `thirdPartyID` is create-only | Can't be PATCHed in. Set it at create time on `createProjectAndDub` / `createProjectAndTranscribe` or you can't use the fast lookup later |
 | `dub` vs `dubs` | `GET /translations/:id` returns `dub` (array). Projects endpoint returns `dubs` |
+| `check-export-billing` ≠ `exportProject` gate | A 402 from `check-export-billing` does NOT prevent `exportProject` from accepting the job — it just means you'll burn credits or produce something the API later refuses. Always check first |
+| Soft-delete | `PATCH /projects/:id {isDeleted: true}` hides projects from `GET /projects` listings (the records still exist; fetch by ID still works) |
 | #1846 — 502 on merge | `beginDubJob` must be in `module.exports` of `dub.service.js` |
 | isMerge logic | All `fileNameToDubs[dubKey]` non-empty → fast merge; any empty → full re-synthesis |
 | Sequential batch dubs | `POST /dubs/multiple` runs sequentially to avoid isMerge race condition (#1698) |
 | `isOver30Minutes` | Only in `check-upload-billing` response on the paid/credit-check path |
 | voiceMatchingMode | All dubs stored as `customized` internally; per-speaker config controls actual mode |
+| S3 SigV2 + curl | `curl --data-binary @file` adds `Content-Type: application/x-www-form-urlencoded`, breaking the SigV2 signature on presigned PUTs. Pass `-H "Content-Type:"` to strip |
