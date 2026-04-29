@@ -14,38 +14,44 @@ See [`speechlab-api/evals/iteration-1/benchmark.md`](speechlab-api/evals/iterati
 
 ## Install
 
-### Project-scoped (recommended)
+This repo is a Claude Code **plugin marketplace**. Install with two slash-commands inside Claude Code:
 
-Make the skill available only inside one project. Run from the root of the project you want to use it in:
+```
+/plugin marketplace add speechlabinc/speechlab-platform-skill
+/plugin install speechlab-api@speechlab-platform-skill
+```
+
+That's it. No cloning, no `cp`, no `mkdir`.
+
+### Updating
+
+```
+/plugin marketplace update speechlab-platform-skill
+```
+
+Pulls the latest `main`. Your installed plugin keeps working — no re-install needed.
+
+### Uninstall
+
+```
+/plugin uninstall speechlab-api@speechlab-platform-skill
+```
+
+### Manual install (without the plugin system)
+
+If you're on an older Claude Code that doesn't have `/plugin`, drop the skill folder into `.claude/skills/` directly:
 
 ```bash
 git clone https://github.com/speechlabinc/speechlab-platform-skill.git /tmp/speechlab-platform-skill
 mkdir -p .claude/skills
-cp -R /tmp/speechlab-platform-skill/speechlab-api .claude/skills/
+cp -R /tmp/speechlab-platform-skill/speechlab-api/skills/speechlab-api .claude/skills/
 ```
 
-Commit `.claude/skills/speechlab-api/` so your team picks it up automatically.
-
-### User-scoped (all projects)
-
-Make the skill available to every project on your machine:
-
-```bash
-git clone https://github.com/speechlabinc/speechlab-platform-skill.git /tmp/speechlab-platform-skill
-mkdir -p ~/.claude/skills
-cp -R /tmp/speechlab-platform-skill/speechlab-api ~/.claude/skills/
-```
+For a user-scoped (all-projects) install, swap `.claude/skills` for `~/.claude/skills`.
 
 ### Verify
 
-Start a Claude Code session and ask something like *"How do I log into the SpeechLab dev API?"*. Claude should automatically load the skill (you'll see it referenced) and answer with the exact `tokens.accessToken.jwtToken` path.
-
-You can also check it's discoverable:
-
-```bash
-ls .claude/skills/speechlab-api/SKILL.md   # project install
-ls ~/.claude/skills/speechlab-api/SKILL.md # user install
-```
+Start a Claude Code session and ask something like *"How do I log into the SpeechLab dev API?"*. Claude should automatically load the skill and answer with the exact `tokens.accessToken.jwtToken` path.
 
 ---
 
@@ -99,8 +105,15 @@ The first example above (the local-file end-to-end dub) was the exact prompt use
 ## What's in this repo
 
 ```
-speechlab-api/
-├── SKILL.md                      # the skill itself — frontmatter + instructions
+.claude-plugin/
+└── marketplace.json              # Claude Code plugin-marketplace manifest
+
+speechlab-api/                    # the plugin
+├── .claude-plugin/
+│   └── plugin.json               # plugin metadata (name, version, description)
+├── skills/
+│   └── speechlab-api/
+│       └── SKILL.md              # the skill itself — frontmatter + instructions
 └── evals/
     ├── evals.json                # 5 prompts + assertions used to benchmark the skill
     └── iteration-1/
@@ -124,12 +137,13 @@ speechlab-api/
 
 ## Updating
 
-This skill is maintained alongside the SpeechLab API. To pull the latest version:
+This skill is maintained alongside the SpeechLab API. If you installed via the plugin system:
 
-```bash
-cd /tmp/speechlab-platform-skill && git pull
-cp -R /tmp/speechlab-platform-skill/speechlab-api ~/.claude/skills/   # or your project path
 ```
+/plugin marketplace update speechlab-platform-skill
+```
+
+If you installed manually, re-run the manual install snippet above against a fresh `git pull`.
 
 ---
 

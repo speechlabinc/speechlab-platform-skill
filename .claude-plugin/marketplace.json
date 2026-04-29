@@ -1,0 +1,14 @@
+{
+  "name": "speechlab-platform-skill",
+  "owner": {
+    "name": "SpeechLab Inc",
+    "url": "https://speechlab.ai"
+  },
+  "plugins": [
+    {
+      "name": "speechlab-api",
+      "source": "./speechlab-api",
+      "description": "SpeechLab AI dubbing platform API guide for Claude Code agents — covers auth, projects, translations, dubs, segments, billing, and the gotchas that aren't obvious from the OpenAPI spec."
+    }
+  ]
+}

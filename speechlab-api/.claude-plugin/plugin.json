@@ -1,0 +1,19 @@
+{
+  "name": "speechlab-api",
+  "version": "1.0.0",
+  "description": "SpeechLab AI dubbing platform API guide. Teaches Claude how to use the SpeechLab API — auth, projects, translations, dubs, segments, billing, file uploads, the expand=true direct-download path, and the gotchas (s3:// unsupported, dub vs dubs naming, selectedFormat silent fail, etc.) that aren't obvious from the OpenAPI spec.",
+  "author": {
+    "name": "SpeechLab Inc",
+    "url": "https://speechlab.ai"
+  },
+  "homepage": "https://github.com/speechlabinc/speechlab-platform-skill",
+  "license": "MIT",
+  "keywords": [
+    "speechlab",
+    "dubbing",
+    "translation",
+    "transcription",
+    "tts",
+    "api"
+  ]
+}
