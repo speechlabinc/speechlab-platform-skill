@@ -1,8 +1,40 @@
 # speechlab-platform-skill
 
-A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) **Skill** that teaches Claude how to use the SpeechLab AI dubbing platform API — auth, projects, translations, dubs, segments, billing, and the gotchas that aren't obvious from the OpenAPI spec.
+> **Effortless AI dubbing for video, audio & live — wired straight into your Claude Code agent.**
+> Ship one prompt, get every artifact back: subtitles, captions, voice-cloned audio, and a finished dubbed video.
 
-When this skill is installed, Claude will automatically reach for the right endpoints, the correct JWT token path (`tokens.accessToken.jwtToken`), the right field names (`dub` vs `dubs`), and the known issues (#1846 `beginDubJob` export bug, etc.) the moment you ask anything about SpeechLab.
+A [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) **plugin** that teaches your agent how to drive the [SpeechLab](https://speechlab.ai) AI dubbing platform end-to-end — auth, file uploads, projects, translations, dubs, segments, billing, artifact downloads, and the dozens of gotchas that aren't in the OpenAPI spec.
+
+---
+
+## Why dub with SpeechLab (and why through this skill)
+
+**Your audience is global. Your content isn't — yet.**
+
+Roughly **75% of the world doesn't speak English**, and the average YouTube creator leaves the majority of their potential watch-time on the table by shipping a single-language video. Channels that add high-quality multilingual dubs routinely report **30–100%+ lifts in total views and watch-time**, plus a step-change in subscriber acquisition from non-English markets — exactly the kind of signal the YouTube algorithm rewards.
+
+**SpeechLab vs YouTube's built-in auto-dub:**
+
+YouTube's auto-dub uses generic robotic TTS that doesn't sound like you, doesn't match your delivery, and stands out as obviously machine-translated. Viewers bounce, retention craters, and the algorithm punishes you for it — so the "free" auto-dub often costs you more views than the language gives you.
+
+SpeechLab is built on **voice-cloned, speaker-preserved** dubbing — the dubbed track sounds like *you* speaking the new language, with your tone, pacing, and emotion. That's the quality bar that actually keeps non-English viewers watching to the end and triggers the watch-time signals that win you the algorithm.
+
+**What you get:**
+
+- **20+ languages, ~300 language pairs** — Spanish (LatAm + Castilian), Portuguese (Brazil), Mandarin, Hindi, French, German, Japanese, Korean, Arabic, and more
+- **Voice cloning** — keep the original speaker's voice, or pick a native-language voice
+- **Sub-3-second latency live mode** — for streams, podcasts, and real-time interpretation
+- **Linguist-reviewed enterprise tier** — for content where quality matters more than speed
+- **Free tier on signup** — first projects under 30 minutes are free; perfect for testing before scaling
+- Trusted by **iHeartMedia, Pearson, DeepLearning.AI, Auddy, Vistatec, Daon, OVALmedia**
+
+**Built for agentic content workflows:**
+
+The whole point of this skill is to make SpeechLab a one-prompt-away tool for the agents you're already building. Whether you're auto-localizing a creator's back-catalog overnight, generating per-region versions of a marketing video for a paid ad campaign, or wiring SpeechLab into a content-ops pipeline that publishes weekly across 8 markets — your agent now knows the right endpoint, the right body shape, and the fast download path without you babysitting it.
+
+### What the skill does for the agent
+
+Once installed, Claude (or any agent built on the Claude Agent SDK) automatically reaches for the right endpoints, the correct JWT token path (`tokens.accessToken.jwtToken`), the working request bodies (the OpenAPI spec misnames several fields), the fast download path (`GET /projects?expand=true`), and the file-upload pattern that doesn't break the S3 SigV2 signature — the moment you ask anything about SpeechLab.
 
 | Without skill | With skill |
 |---|---|
@@ -57,20 +89,20 @@ Start a Claude Code session and ask something like *"How do I log into the Speec
 
 ## Example prompts
 
-Once installed, just talk to Claude in plain English — the skill triggers automatically. The first prompt below is the exact one we used end-to-end in [a real session](#real-session-walkthrough): upload a local file, dub it, and download every artifact.
+Once installed, just talk to Claude in plain English — the skill triggers automatically.
 
 ### End-to-end dub from a local file
 
-> *"Using the SpeechLab skill, I want to dub the following video and download the subtitles, captions, audio and final dub video. `/Users/me/clips/lecture.mov`"*
+> *"Using the SpeechLab skill, dub `/Users/me/clips/lecture.mov` into Chinese with the source speaker's voice and download the subtitles, captions, audio, and final dubbed video."*
 
 Claude will:
 
-1. Log in (or register) on the dev API and store the JWT
-2. Run `check-upload-billing` and the user balance check
-3. Initialize a multipart upload, split the file, sign each part, `PUT` to S3 (with no `Content-Type` header — that's a SigV2 gotcha curl gets wrong by default), then `finalize-multipart-upload`
-4. `POST /projects/createProjectAndDub` with an **HTTPS** `mediaFileURI` (`s3://` URIs error with *"Unsupported protocol s3:"* on dev)
-5. Poll the project until `dubs[0].status === 'COMPLETE'`
-6. Export `srt`, `wav`, `txt`, and `mp4` and download each artifact to a local folder
+1. Log in (or register) on the SpeechLab API and cache the JWT
+2. Run `check-upload-billing` to confirm the upload won't 402 (free under 30 min for the first 2 projects)
+3. Multipart-upload the local file via the Upload API (`initialize` → presigned `PUT` per part with the `Content-Type:` strip that fixes S3 SigV2 → `finalize`)
+4. Create the project + transcription via `POST /projects/createProjectAndTranscribe` with the `fileUuid` / `fileKey` from the upload — and a caller-supplied `thirdPartyID` so the artifacts are easy to fetch later
+5. Wait for transcription `COMPLETE`, then `POST /translations { project, language, status }`, wait for translation `COMPLETE`, then `POST /dubs { contentId, translationId, language, status, voiceMatchingMode }` (the real bodies — not the ones in the OpenAPI spec)
+6. Once `dubs[0].status === "COMPLETE"`, pull every artifact in **one round-trip** via `GET /projects?thirdPartyIDs=…&expand=true` — that response includes a `presignedURL` for the SRT, JSON captions, MP3 dubbed audio, and the final dubbed MP4. No separate export-and-poll step needed
 
 ### A few more examples
 
@@ -88,17 +120,23 @@ Claude will:
 
 > *"List my last 10 projects sorted by `createdAt` and delete every project whose name starts with `[TEST]`."*
 
-### Real-session walkthrough
+### Gotchas the skill handles for you
 
-The first example above (the local-file end-to-end dub) was the exact prompt used to develop and exercise this skill. Notable things Claude learned to handle along the way and now does without prompting:
+The skill encodes these so you (and Claude) don't trip over them:
 
-| Gotcha | Fix the skill knows |
+| Gotcha | What the skill knows |
 |---|---|
-| `curl --data-binary @file` adds `Content-Type: application/x-www-form-urlencoded`, breaking the S3 SigV2 signature | Pass `-H "Content-Type:"` to strip it |
-| `mediaFileURI: 's3://...'` returns *"Unsupported protocol s3:"* on dev | Use the bucket's HTTPS URL form |
+| `curl --data-binary @file` auto-adds `Content-Type: application/x-www-form-urlencoded`, which becomes part of the S3 SigV2 string-to-sign and breaks the signature | Pass `-H "Content-Type:"` (empty value) to strip it before `PUT`-ing each presigned part |
+| `mediaFileURI: 's3://...'` → *"Error processing job: Unsupported protocol s3:"* | `s3://` URIs are not supported. For local files, use the Upload API + `createProjectAndTranscribe` (skips URL plumbing entirely). `mediaFileURI` is for public HTTPS URLs only |
+| OpenAPI spec lies about `POST /translations` body | Real shape: `{ project, language, status: "NOT_STARTED" }` — not `{ projectId, transcriptionId, targetLanguage }` |
+| OpenAPI spec lies about `POST /dubs` body | Real shape: `{ contentId, translationId, language, status: "NOT_STARTED", voiceMatchingMode }` |
+| `selectedFormat: "mp4"` returns 200 + a 22-byte empty zip — silent failure | Use long-form tokens: `videoMp4`, `audioMp3`, `subtitleSrt`, `transcriptTxt`, etc. |
+| Mount paths plural — `/medias`, `/collectionjobs` (no hyphen) — but OpenAPI spec lists `/media`, `/collection-jobs` | Skill uses the real plural paths |
 | `tokens.access.token` is wrong | Use `tokens.accessToken.jwtToken` |
-| Project lookups return `dubs` (plural); translation lookups return `dub` (still an array) | Skill warns when you mix them up |
-| Free-tier dev account starts at 0 credits, but uploads under 30 min for the first 2 projects are free | The skill calls `check-upload-billing` first to confirm the `freeUpload: true` path |
+| Project lookups return `dubs` (plural); `GET /translations/:id` returns `dub` (still an array) | Skill keeps the two straight |
+| `expand=true` is undocumented but is the fast download path — without it, `medias` are bare ObjectIds | Always paired with `thirdPartyIDs` for one-round-trip artifact retrieval |
+| Free-tier dev account starts at 0 credits, but uploads under 30 min for the first 2 projects are free | Skill calls `check-upload-billing` first to confirm the `freeUpload: true` path |
+| HTTP **402** (out of credits) | Skill stops cleanly and tells the user to top up via the SpeechLab UI (avatar → Buy more credits) instead of retrying |
 
 ---
 
