@@ -1,0 +1,34 @@
+{
+  "name": "remotion-globalization",
+  "version": "1.0.0",
+  "description": "SpeechLab x Remotion globalization demo — dub once, render in every language",
+  "remotion": {
+    "entryFile": "src/Root.tsx"
+  },
+  "scripts": {
+    "studio": "npx remotion studio src/Root.tsx",
+    "render:en": "npx remotion render src/Root.tsx Main --props='{\"language\":\"en\"}' --output=out/main-en.mp4",
+    "render:es_la": "npx remotion render src/Root.tsx Main --props='{\"language\":\"es_la\"}' --output=out/main-es_la.mp4",
+    "render:fr": "npx remotion render src/Root.tsx Main --props='{\"language\":\"fr\"}' --output=out/main-fr.mp4",
+    "render:pt_br": "npx remotion render src/Root.tsx Main --props='{\"language\":\"pt_br\"}' --output=out/main-pt_br.mp4",
+    "render:all": "npm run render:en && npm run render:es_la && npm run render:fr && npm run render:pt_br",
+    "typecheck": "npx tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@remotion/captions": "^4.0.472",
+    "@remotion/cli": "^4.0.472",
+    "@remotion/media": "^4.0.472",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "remotion": "^4.0.472",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^6.0.3"
+  }
+}

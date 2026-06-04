@@ -1,2 +1,2 @@
-# Local skill install for testing — the canonical skill lives at speechlab-api/
-.claude/
+.DS_Store
+node_modules/
