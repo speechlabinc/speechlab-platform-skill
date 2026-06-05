@@ -4,11 +4,11 @@
 
 I wanted to see if the next problem could be solved the same way: I have the video, but it's in English. Could I get a Spanish version — real dubbed voice, translated subtitles — without opening a single tool? I added the **SpeechLab skill** to my Claude Code session and asked. Here's the whole thing.
 
-Here's what came out the other end — the speaker's own voice, dubbed to Spanish, subtitles translated and burned in:
+Here's what came out — the real footage, the speaker's voice dubbed to Spanish, and the translated subtitles burned in by Remotion:
 
-![Spanish cut](images/demo-es_la.gif)
+![Real video dubbed to Spanish with subtitles burned in](images/demo-es_la.gif)
 
-▶️ [Watch the full 43-second video](videos/promo-es_la.mp4)
+▶️ [Watch the full clip with the Spanish dubbed audio](videos/subtitled-es_la.mp4)
 
 ---
 

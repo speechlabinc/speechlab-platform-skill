@@ -5,3 +5,5 @@ public/*/audio.mp3
 # Keep placeholder SRT files but not real ones from the API
 # Uncomment the next line to also gitignore fetched SRTs:
 # public/*/captions.srt
+# Source footage is downloaded, not committed (public URL)
+public/source.mp4
