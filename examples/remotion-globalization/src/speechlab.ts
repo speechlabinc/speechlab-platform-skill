@@ -32,7 +32,6 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { parseSrt } from "@remotion/captions";
 import type { Caption } from "@remotion/captions";
 import { staticFile } from "remotion";
 import type { Language, LocalizationData } from "./types";
@@ -42,17 +41,6 @@ import type { Language, LocalizationData } from "./types";
  *
  * @param srtPath - staticFile()-resolved path, e.g. staticFile('en/captions.srt')
  */
-async function fetchAndParseSrt(srtPath: string): Promise<Caption[]> {
-  const response = await fetch(srtPath);
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch captions at ${srtPath}: ${response.status} ${response.statusText}`
-    );
-  }
-  const text = await response.text();
-  const { captions } = parseSrt({ input: text });
-  return captions;
-}
 
 /**
  * Computes the total duration in seconds from a Caption array.
@@ -84,9 +72,19 @@ export async function loadLocalization(
   // All assets live under public/<lang>/ regardless of language.
   // For English this is the original source; for others it's SpeechLab output.
   const audioSrc = staticFile(`${language}/audio.mp3`);
-  const srtPath = staticFile(`${language}/captions.srt`);
 
-  const captions = await fetchAndParseSrt(srtPath);
+  // Captions come from SpeechLab as { start, end, text } seconds. We load the
+  // JSON (one cue per sentence) and map to Remotion's Caption shape — one cue
+  // per page, so exactly one translated subtitle is on screen at a time.
+  const res = await fetch(staticFile(`${language}/captions.json`));
+  const cues = (await res.json()) as Array<{ start: number; end: number; text: string }>;
+  const captions: Caption[] = cues.map((c) => ({
+    text: c.text,
+    startMs: Math.round(c.start * 1000),
+    endMs: Math.round(c.end * 1000),
+    timestampMs: Math.round(c.start * 1000),
+    confidence: 1,
+  }));
   const durationSec = captionsDurationSec(captions);
 
   return { audioSrc, captions, durationSec };
