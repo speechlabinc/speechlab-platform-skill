@@ -16,7 +16,7 @@
  *   MainComposition   — the renderable React component
  */
 
-import React, { useMemo } from "react";
+import React from "react";
 import {
   AbsoluteFill,
   interpolate,
@@ -25,7 +25,6 @@ import {
   useVideoConfig,
 } from "remotion";
 import { Audio } from "@remotion/media";
-import { createTikTokStyleCaptions } from "@remotion/captions";
 import { z } from "zod";
 import { CaptionOverlay } from "./CaptionOverlay";
 import type { Language } from "./types";
@@ -78,16 +77,6 @@ export const MainComposition: React.FC<MainProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
-
-  /** Convert flat captions → TikTok-style pages (word-level highlighting) */
-  const { pages } = useMemo(
-    () =>
-      createTikTokStyleCaptions({
-        captions,
-        combineTokensWithinMilliseconds: 400,
-      }),
-    [captions]
-  );
 
   const isRtl = RTL_LANGUAGES.has(language as Language);
 
@@ -419,7 +408,7 @@ export const MainComposition: React.FC<MainProps> = ({
       </div>
 
       {/* ── TikTok-style caption overlay ───────────────────────────────────── */}
-      <CaptionOverlay pages={pages} isRtl={isRtl} />
+      <CaptionOverlay captions={captions} isRtl={isRtl} />
     </AbsoluteFill>
   );
 };

@@ -1,48 +1,39 @@
 /**
- * CaptionOverlay.tsx — TikTok-style caption overlay for Remotion
+ * CaptionOverlay.tsx — subtitle overlay for Remotion
  *
- * Displays the active caption for the current frame, styled as a bold
- * center-screen lower-third. The active caption is determined by comparing
- * the current time in milliseconds against each Caption's startMs / endMs.
+ * Shows exactly ONE caption — the cue whose [startMs, endMs) window contains
+ * the current frame — styled as a bold center-screen lower-third. This is the
+ * "Remotion slices in the translated subtitle" half of the pipeline: the cues
+ * come from SpeechLab (translated), Remotion decides when each is on screen.
  *
- * Layout is language-agnostic: RTL locales (ar_sa) are handled by setting
- * `direction: 'rtl'` via the `isRtl` prop so the same component works for
- * all SpeechLab-supported locales.
+ * Layout is language-agnostic: RTL locales (e.g. ar_sa) flip via `isRtl`.
  */
 
-import React, { useMemo } from "react";
+import React from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import type { TikTokPage } from "@remotion/captions";
+import type { Caption } from "@remotion/captions";
 
 export interface CaptionOverlayProps {
-  /** TikTok-style pages produced by createTikTokStyleCaptions() in Main.tsx */
-  pages: TikTokPage[];
+  /** Translated cues from SpeechLab (one sentence per cue) */
+  captions: Caption[];
   /** Set true for RTL languages (Arabic, Hebrew, etc.) */
   isRtl?: boolean;
 }
 
 export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
-  pages,
+  captions,
   isRtl = false,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-
-  /** Current playback time in milliseconds */
   const currentMs = (frame / fps) * 1000;
 
-  /** Find the page whose time window contains the current frame */
-  const activePage = useMemo<TikTokPage | null>(() => {
-    for (const page of pages) {
-      const endMs = page.startMs + page.durationMs;
-      if (currentMs >= page.startMs && currentMs < endMs) {
-        return page;
-      }
-    }
-    return null;
-  }, [pages, currentMs]);
+  /** The single cue on screen right now (if any) */
+  const active = captions.find(
+    (c) => currentMs >= c.startMs && currentMs < c.endMs
+  );
 
-  if (!activePage) return null;
+  if (!active) return null;
 
   return (
     <div
@@ -53,7 +44,6 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
         right: 0,
         display: "flex",
         justifyContent: "center",
-        alignItems: "center",
         padding: "0 48px",
         direction: isRtl ? "rtl" : "ltr",
       }}
@@ -65,31 +55,16 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
           padding: "18px 28px",
           maxWidth: 860,
           textAlign: "center",
+          fontFamily: "'Helvetica Neue', Arial, sans-serif",
+          fontSize: 52,
+          fontWeight: 800,
+          lineHeight: 1.25,
+          letterSpacing: -0.5,
+          color: "#FFE44D",
+          textShadow: "0 2px 12px rgba(0,0,0,0.6)",
         }}
       >
-        {activePage.tokens.map((token, i) => {
-          /** Highlight the token currently being spoken */
-          const isActive =
-            currentMs >= token.fromMs && currentMs < token.toMs;
-          return (
-            <span
-              key={i}
-              style={{
-                fontFamily: "'Helvetica Neue', Arial, sans-serif",
-                fontSize: 56,
-                fontWeight: 800,
-                lineHeight: 1.25,
-                letterSpacing: -0.5,
-                color: isActive ? "#FFE44D" : "#FFFFFF",
-                textShadow: "0 2px 12px rgba(0,0,0,0.6)",
-                transition: "color 0.08s ease",
-                display: "inline",
-              }}
-            >
-              {token.text}
-            </span>
-          );
-        })}
+        {active.text}
       </div>
     </div>
   );
