@@ -206,3 +206,17 @@ npx tsc --noEmit
    ```
 2. Add a render script to `package.json` (optional)
 3. Run `node scripts/fetch-localization.mjs es_es`
+
+## Demo footage
+
+The `Subtitled` composition needs a source video at `public/source.mp4`:
+
+```bash
+curl -L https://media.w3.org/2010/05/sintel/trailer_hd.mp4 -o public/source.mp4
+```
+
+Then render the real demo (real footage + SpeechLab dub + Remotion subtitles):
+
+```bash
+npx remotion render src/Root.tsx Subtitled --props='{"language":"es_la"}' --output=out/subtitled-es_la.mp4
+```

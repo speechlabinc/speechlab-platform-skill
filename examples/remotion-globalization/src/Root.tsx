@@ -25,8 +25,12 @@ import { Composition, registerRoot } from "remotion";
 import { z } from "zod";
 import type { CalculateMetadataFunction } from "remotion";
 import { MainComposition, mainSchema } from "./Main";
+import { SubtitledVideo, subtitledSchema } from "./SubtitledVideo";
 import { loadLocalization } from "./speechlab";
 import type { Language } from "./types";
+
+/** Length of public/source.mp4 (Sintel trailer) — the real demo footage. */
+const SOURCE_DURATION_SEC = 52.2;
 
 /** The schema only describes the *input* props — language is all the user sets */
 export const compositionSchema = z.object({
@@ -62,24 +66,61 @@ const calculateMetadata: CalculateMetadataFunction<CompositionInputProps> =
     };
   };
 
+/** Real-footage demo: play source.mp4, swap in the dubbed audio + subtitles. */
+const calculateSubtitledMetadata: CalculateMetadataFunction<CompositionInputProps> =
+  async ({ props }) => {
+    const language = props.language as Language;
+    const localization = await loadLocalization(language);
+    return {
+      durationInFrames: Math.round(SOURCE_DURATION_SEC * FPS),
+      props: {
+        language,
+        audioSrc: localization.audioSrc,
+        captions: localization.captions,
+        durationSec: SOURCE_DURATION_SEC,
+      },
+    };
+  };
+
 export const RemotionRoot: React.FC = () => {
   return (
-    <Composition
-      id="Main"
-      component={MainComposition}
-      fps={FPS}
-      width={1080}
-      height={1920}
-      durationInFrames={FPS * 30}
-      schema={mainSchema}
-      defaultProps={{
-        language: "en" as Language,
-        audioSrc: "",
-        captions: [],
-        durationSec: 0,
-      }}
-      calculateMetadata={calculateMetadata}
-    />
+    <>
+      {/* The real demo: a video translated, with Remotion-burned subtitles. */}
+      <Composition
+        id="Subtitled"
+        component={SubtitledVideo}
+        fps={FPS}
+        width={1920}
+        height={1080}
+        durationInFrames={Math.round(SOURCE_DURATION_SEC * FPS)}
+        schema={subtitledSchema}
+        defaultProps={{
+          language: "en" as Language,
+          audioSrc: "",
+          captions: [],
+          durationSec: 0,
+        }}
+        calculateMetadata={calculateSubtitledMetadata}
+      />
+
+      {/* The branded motion-graphic variant. */}
+      <Composition
+        id="Main"
+        component={MainComposition}
+        fps={FPS}
+        width={1080}
+        height={1920}
+        durationInFrames={FPS * 30}
+        schema={mainSchema}
+        defaultProps={{
+          language: "en" as Language,
+          audioSrc: "",
+          captions: [],
+          durationSec: 0,
+        }}
+        calculateMetadata={calculateMetadata}
+      />
+    </>
   );
 };
 
