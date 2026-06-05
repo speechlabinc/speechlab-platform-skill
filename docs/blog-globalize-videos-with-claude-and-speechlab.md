@@ -1,60 +1,70 @@
-# Globalizing a video inside a Claude Code session
+# I dubbed a video into Spanish without leaving Claude Code
 
-[Sabrina Ramonov showed how Claude Code + the Remotion skill makes a video from a prompt.](https://www.sabrina.dev/p/claude-just-changed-content-creation-remotion-video) This is the same thing, one step later: I handed Claude that finished English video and asked it to make a Spanish one — dub the voice, overlay the translated subtitles, render it. All in the session. Here's exactly what happened.
+[Sabrina Ramonov wrote up how she makes short-form videos by just talking to Claude Code](https://www.sabrina.dev/p/claude-just-changed-content-creation-remotion-video) — the Remotion skill writes the video, she previews it in the browser, she iterates. No editor.
 
-The result it produced (Latin-American Spanish, the speaker's own voice dubbed, translated subtitle overlaid by Remotion):
+I wanted to see if the next problem could be solved the same way: I have the video, but it's in English. Could I get a Spanish version — real dubbed voice, translated subtitles — without opening a single tool? I added the **SpeechLab skill** to my Claude Code session and asked. Here's the whole thing.
 
-![Rendered Spanish cut](images/demo-es_la.gif)
+Here's what came out the other end — the speaker's own voice, dubbed to Spanish, subtitles translated and burned in:
 
-▶️ **Full video:** [`docs/videos/promo-es_la.mp4`](videos/promo-es_la.mp4) · **The project:** [`examples/remotion-globalization`](../examples/remotion-globalization)
+![Spanish cut](images/demo-es_la.gif)
+
+▶️ [Watch the full 43-second video](videos/promo-es_la.mp4)
 
 ---
 
 ## The session
 
-> **Me:** Open `examples/remotion-globalization` — it's a Remotion promo in English. Make a Latin-American Spanish version: dub the narration into Spanish in the same voice, overlay the translated subtitles, and render it.
+**I typed:**
 
-> **Claude:** This is a Remotion project (composition `Main` in `src/Root.tsx`). I'll use the SpeechLab skill to dub the English narration into Latin-American Spanish, then have Remotion swap the audio and overlay the translated captions. Submitting the dub now…
->
-> *Created the dub (`en` → `es_la`). Polling the job…*
->
-> ```
-> transcription: COMPLETE → translation: COMPLETE → dub mergeStatus: COMPLETE  (≈5 min)
-> ```
->
-> Dub finished. I downloaded the Spanish audio and the translated, time-aligned captions into `public/es_la/`. Rendering the localized cut:
->
-> ```
-> npx remotion render Main out/promo-es_la.mp4 --props='{"language":"es_la"}'
-> ```
->
-> ✅ **`out/promo-es_la.mp4`** — 43s, 1080×1920, the same promo with the Spanish dub and Spanish subtitles. Want me to do more languages?
+> I have a Remotion promo in English. Make a Latin-American Spanish version — dub the narration into Spanish in the same voice, overlay the translated subtitles, and render it.
 
-> **Me:** Yes — French, Brazilian Portuguese, Japanese, and Arabic too.
+**Claude:**
 
-> **Claude:** Dubbing into `fr`, `pt_br`, `ja`, and `ar_sa`, then rendering each. (Arabic subtitles render right-to-left automatically.)
+> That's a Remotion project — I can see the `Main` composition. I'll dub the English narration into Latin-American Spanish with the SpeechLab skill, then have Remotion swap the audio and overlay the translated captions. Starting the dub…
+
+It went off and did it. I didn't pick an API endpoint, look up a language code, or write a fetch — the skill already knew all of that. A few minutes later:
+
+> Dub's done — voice cloned into Spanish, captions translated and time-aligned. I dropped them into the project and rendered it:
 >
-> ✅ `promo-fr.mp4`, `promo-pt_br.mp4`, `promo-ja.mp4`, `promo-ar_sa.mp4` — one English source, five languages.
+> ✅ **promo-es_la.mp4** — same promo, Spanish voice, Spanish subtitles. Want more languages?
 
-That's the whole demo. I never opened the SpeechLab API or wrote a line of dubbing code. Claude had two skills in the session — **Remotion** (it knows how to open and render the project) and **SpeechLab** (it knows how to dub and translate) — and just used both.
+I opened the file. It was my video, in Spanish, in the original speaker's voice. So I pushed it:
+
+**I typed:**
+
+> Yeah — French, Brazilian Portuguese, Japanese, and Arabic too.
+
+**Claude:**
+
+> Dubbing into `fr`, `pt_br`, `ja`, and `ar_sa`, then rendering each. (Arabic subtitles flip right-to-left automatically.)
+>
+> ✅ Five videos, one English source.
+
+That was it. The whole job was two sentences in a chat.
 
 ---
 
-## Run it yourself
+## Why it works in one session
+
+Two skills were loaded, and Claude just used both:
+
+- the **Remotion skill** knows how to open the project, parametrize it by language, and render it;
+- the **SpeechLab skill** knows how to clone the voice, translate the script, and — the part a raw model always gets wrong — *which* calls to make (the Spanish code is `es_la`, not `es`; where the token lives; how to wait for the dub).
+
+You bring the intent. The skills bring the know-how. Nothing to wire up.
+
+---
+
+## Try it
 
 ```bash
-# the two skills, in one Claude Code session
-npx skills add remotion-dev/skills                                   # make/render videos
-claude plugin marketplace add speechlabinc/speechlab-platform-skill  # globalize them
+npx skills add remotion-dev/skills                                   # the video skill (Sabrina's)
+claude plugin marketplace add speechlabinc/speechlab-platform-skill  # the globalize skill
 claude plugin install speechlab-api
 ```
 
-Then point Claude at a Remotion project and say:
+Then, in a session with any Remotion video:
 
-> *"Make a Spanish version of this — dub the voice and overlay the subtitles — and render it."*
+> *"Make a Spanish version of this — dub the voice, overlay the subtitles — and render it."*
 
-The exact project from this session, ready to clone and run: **[`examples/remotion-globalization`](../examples/remotion-globalization)**.
-
-- SpeechLab skill: https://github.com/speechlabinc/speechlab-platform-skill
-- SpeechLab MCP server (`npx speechlab-mcp`): https://github.com/speechlabinc/speechlab-mcp
-- Remotion skill: https://github.com/remotion-dev/remotion/tree/main/packages/skills/skills/remotion
+Skill: https://github.com/speechlabinc/speechlab-platform-skill · MCP: https://github.com/speechlabinc/speechlab-mcp
