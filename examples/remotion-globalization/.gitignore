@@ -1,0 +1,7 @@
+node_modules/
+out/
+# Dubbed audio is fetched by scripts/fetch-localization.mjs — not committed
+public/*/audio.mp3
+# Keep placeholder SRT files but not real ones from the API
+# Uncomment the next line to also gitignore fetched SRTs:
+# public/*/captions.srt

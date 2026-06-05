@@ -1,0 +1,19 @@
+1
+00:00:00,000 --> 00:00:02,500
+Une vidéo. Chaque langue.
+
+2
+00:00:02,500 --> 00:00:05,000
+Voix doublée par IA, sous-titres traduits,
+
+3
+00:00:05,000 --> 00:00:07,500
+rendus pixel-parfaits avec Remotion.
+
+4
+00:00:07,500 --> 00:00:10,000
+SpeechLab fait la traduction.
+
+5
+00:00:10,000 --> 00:00:12,500
+Vous n'avez qu'à rendre.
